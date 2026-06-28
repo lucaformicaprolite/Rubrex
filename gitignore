@@ -1,0 +1,19 @@
+# Variables de entorno y secretos — NUNCA subir a git
+.env
+.env.local
+.env.*.local
+
+# Base de datos local (contiene certificados encriptados de clientes)
+rubrex.db
+rubrex.db-journal
+
+# Dependencias (se reinstalan con npm install)
+node_modules/
+
+# Logs
+npm-debug.log*
+*.log
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
