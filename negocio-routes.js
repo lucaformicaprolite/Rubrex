@@ -17,6 +17,7 @@ const router = express.Router();
 
 const db = require('./db');
 const { autenticar, requireRol } = require('./auth');
+const { propagarStock } = require('./ecommerce-sync');
 
 // Convierte lo que devuelve Postgres (NUMERIC llega como string) a
 // number, para no romper la matemática que ya hace el front-end.
@@ -25,6 +26,8 @@ function normalizarProducto(p) {
     ...p,
     precio_costo: parseFloat(p.precio_costo) || 0,
     precio_venta: parseFloat(p.precio_venta) || 0,
+    precio_mayorista: p.precio_mayorista!=null ? parseFloat(p.precio_mayorista) : null,
+    cantidad_mayorista: p.cantidad_mayorista!=null ? parseInt(p.cantidad_mayorista) : null,
     stock: parseInt(p.stock) || 0
   };
 }
@@ -60,16 +63,17 @@ router.get('/api/productos', autenticar, async (req, res) => {
 
 router.post('/api/productos', autenticar, requireRol('dueno', 'deposito'), async (req, res) => {
   try {
-    const { nombre, codigo, categoria, precio_costo, precio_venta, stock, foto } = req.body;
+    const { nombre, codigo, categoria, precio_costo, precio_venta, stock, precio_mayorista, cantidad_mayorista, foto } = req.body;
     if (!nombre || !nombre.trim()) {
       return res.status(400).json({ ok: false, error: 'El nombre es obligatorio.' });
     }
     const r = await db.prepare(`
-      INSERT INTO productos (negocio_id, nombre, codigo, categoria, precio_costo, precio_venta, stock, foto)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
+      INSERT INTO productos (negocio_id, nombre, codigo, categoria, precio_costo, precio_venta, stock, precio_mayorista, cantidad_mayorista, foto)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
     `).get(
       req.clienteId, nombre.trim(), codigo || null, categoria || 'General',
-      precio_costo || 0, precio_venta || 0, stock || 0, foto || null
+      precio_costo || 0, precio_venta || 0, stock || 0,
+      precio_mayorista || null, cantidad_mayorista || null, foto || null
     );
     res.json({ ok: true, producto: normalizarProducto(r) });
   } catch (err) {
@@ -80,20 +84,22 @@ router.post('/api/productos', autenticar, requireRol('dueno', 'deposito'), async
 
 router.put('/api/productos/:id', autenticar, requireRol('dueno', 'deposito'), async (req, res) => {
   try {
-    const { nombre, codigo, categoria, precio_costo, precio_venta, stock, foto } = req.body;
+    const { nombre, codigo, categoria, precio_costo, precio_venta, stock, precio_mayorista, cantidad_mayorista, foto } = req.body;
     if (!nombre || !nombre.trim()) {
       return res.status(400).json({ ok: false, error: 'El nombre es obligatorio.' });
     }
     const r = await db.prepare(`
-      UPDATE productos SET nombre=?, codigo=?, categoria=?, precio_costo=?, precio_venta=?, stock=?, foto=?
+      UPDATE productos SET nombre=?, codigo=?, categoria=?, precio_costo=?, precio_venta=?, stock=?, precio_mayorista=?, cantidad_mayorista=?, foto=?
       WHERE id=? AND negocio_id=? RETURNING *
     `).get(
       nombre.trim(), codigo || null, categoria || 'General',
-      precio_costo || 0, precio_venta || 0, stock || 0, foto || null,
+      precio_costo || 0, precio_venta || 0, stock || 0,
+      precio_mayorista || null, cantidad_mayorista || null, foto || null,
       req.params.id, req.clienteId
     );
     if (!r) return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
     res.json({ ok: true, producto: normalizarProducto(r) });
+    propagarStock(req.clienteId, r.id, parseInt(r.stock) || 0).catch(() => {}); // no bloquea la respuesta
   } catch (err) {
     console.error('Error en PUT /api/productos/:id:', err);
     res.status(500).json({ ok: false, error: 'No se pudo actualizar el producto.' });
@@ -240,6 +246,9 @@ router.post('/api/ventas', autenticar, requireRol('dueno', 'cajero'), async (req
       venta: normalizarVenta(ventaRes.rows[0]),
       productosActualizados
     });
+    // Se dispara después de responder — si una tienda externa está lenta
+    // o caída, no le hacemos esperar al cajero para cerrar la venta.
+    productosActualizados.forEach(pu => propagarStock(req.clienteId, pu.id, pu.stock).catch(() => {}));
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error en POST /api/ventas:', err);
