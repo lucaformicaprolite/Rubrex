@@ -2687,6 +2687,19 @@ async function saveEditProduct(id){
 function closeModal(id){
   const el=document.getElementById(id);
   if(el)el.remove();
+  // Al cerrar el modal de "Agregar producto" (con Cancelar, click afuera o Guardar/Agregar)
+  // nos aseguramos de que no quede ningún desplegable de sugerencias abierto tapando
+  // el buscador, y devolvemos el foco al campo de escaneo para poder seguir cargando.
+  if(id==='modal-add-item'){
+    const pBox=document.getElementById('prod-suggestions');
+    if(pBox){pBox.style.display='none';pBox.innerHTML='';}
+    posSuggestItems=[];posSuggestIndex=-1;
+    const sBox=document.getElementById('scan-suggestions');
+    if(sBox){sBox.style.display='none';sBox.innerHTML='';}
+    scanSuggestItems=[];scanSuggestIndex=-1;
+    const scanInput=document.getElementById('pos_scan');
+    if(scanInput){scanInput.value='';scanInput.focus();}
+  }
 }
 
 async function delProduct(id){
@@ -3165,6 +3178,8 @@ function scanSearchKeydown(event){
     } else {
       // Sin sugerencias (por ejemplo, lector de pistola que tipeó rapidísimo):
       // se mantiene el comportamiento original de código exacto.
+      const box=document.getElementById('scan-suggestions');
+      if(box){box.style.display='none';box.innerHTML='';}
       procesarScan(event.target.value);
       event.target.value='';
     }
@@ -3363,6 +3378,14 @@ function abrirModalItem(id){
   const prod=d.productos.find(p=>p.id===id);
   if(!prod)return;
   if(prod.stock<=0){toast(`"${prod.nombre}" no tiene stock disponible`,'err');return;}
+  // Nos aseguramos de que no quede ningún desplegable de sugerencias abierto
+  // tapando el resto de la pantalla mientras el modal está abierto.
+  const pBox=document.getElementById('prod-suggestions');
+  if(pBox){pBox.style.display='none';pBox.innerHTML='';}
+  posSuggestItems=[];posSuggestIndex=-1;
+  const sBox=document.getElementById('scan-suggestions');
+  if(sBox){sBox.style.display='none';sBox.innerHTML='';}
+  scanSuggestItems=[];scanSuggestIndex=-1;
   const existing=cartItems.find(i=>i.id===id);
   const qtyInicial=existing?existing.qty:1;
   const nombreInicial=existing?existing.nombre:prod.nombre;
